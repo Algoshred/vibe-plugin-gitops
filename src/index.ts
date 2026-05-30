@@ -58,6 +58,25 @@ export const createPlugin: VibePluginFactory = (
     cliCommand: "gitops",
     apiPrefix: "/api/gitops",
 
+    metaProviders: [
+      {
+        packageName: "@vibecontrols/vibe-plugin-gitops-github",
+        pluginName: "gitops-github",
+      },
+      {
+        packageName: "@vibecontrols/vibe-plugin-gitops-gitlab",
+        pluginName: "gitops-gitlab",
+      },
+      {
+        packageName: "@vibecontrols/vibe-plugin-gitops-bitbucket",
+        pluginName: "gitops-bitbucket",
+      },
+      {
+        packageName: "@vibecontrols/vibe-plugin-gitops-azdevops",
+        pluginName: "gitops-azdevops",
+      },
+    ],
+
     createRoutes: () => createGitopsManagerRoutes(manager),
 
     onServerStart: lifecycle.onServerStart,
