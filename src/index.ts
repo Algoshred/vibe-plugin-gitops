@@ -12,10 +12,12 @@
 
 import {
   createLifecycleHooks,
+  provisionMetaProviders,
   TelemetryEmitter,
 } from "@vibecontrols/plugin-sdk";
 import type {
   HostServices,
+  MetaProviderRef,
   ProfileContext,
   VibePlugin,
   VibePluginFactory,
@@ -27,6 +29,29 @@ import { createGitopsManagerRoutes } from "./routes.js";
 
 const PLUGIN_NAME = "gitops";
 const PLUGIN_VERSION = "0.1.0";
+
+/**
+ * Provider packages this meta routes to + per-platform defaults. The meta —
+ * not the agent — installs/loads/prereqs/elects them via `provisionProviders`.
+ */
+const GITOPS_PROVIDERS: ReadonlyArray<MetaProviderRef> = [
+  {
+    packageName: "@vibecontrols/vibe-plugin-gitops-github",
+    pluginName: "gitops-github",
+  },
+  {
+    packageName: "@vibecontrols/vibe-plugin-gitops-gitlab",
+    pluginName: "gitops-gitlab",
+  },
+  {
+    packageName: "@vibecontrols/vibe-plugin-gitops-bitbucket",
+    pluginName: "gitops-bitbucket",
+  },
+  {
+    packageName: "@vibecontrols/vibe-plugin-gitops-azdevops",
+    pluginName: "gitops-azdevops",
+  },
+];
 
 export const createPlugin: VibePluginFactory = (
   _ctx: ProfileContext,
@@ -58,24 +83,9 @@ export const createPlugin: VibePluginFactory = (
     cliCommand: "gitops",
     apiPrefix: "/api/gitops",
 
-    metaProviders: [
-      {
-        packageName: "@vibecontrols/vibe-plugin-gitops-github",
-        pluginName: "gitops-github",
-      },
-      {
-        packageName: "@vibecontrols/vibe-plugin-gitops-gitlab",
-        pluginName: "gitops-gitlab",
-      },
-      {
-        packageName: "@vibecontrols/vibe-plugin-gitops-bitbucket",
-        pluginName: "gitops-bitbucket",
-      },
-      {
-        packageName: "@vibecontrols/vibe-plugin-gitops-azdevops",
-        pluginName: "gitops-azdevops",
-      },
-    ],
+    metaProviders: GITOPS_PROVIDERS,
+    provisionProviders: (hostServices: HostServices) =>
+      provisionMetaProviders(hostServices, GITOPS_PROVIDERS),
 
     createRoutes: () => createGitopsManagerRoutes(manager),
 

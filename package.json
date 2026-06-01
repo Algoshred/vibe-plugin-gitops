@@ -1,6 +1,6 @@
 {
   "name": "@vibecontrols/vibe-plugin-gitops",
-  "version": "0.0.0",
+  "version": "2026.601.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -28,7 +28,7 @@
     "sanity": "bun run format:check && bun run lint:sanity && bun run type:check && bun run build"
   },
   "dependencies": {
-    "@vibecontrols/plugin-sdk": "2026.530.2",
+    "@vibecontrols/plugin-sdk": "2026.601.1",
     "elysia": "^1.4.28"
   },
   "devDependencies": {
