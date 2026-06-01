@@ -87,7 +87,5 @@ jobs:
         run: |
           gh release create "$REL_VERSION" \
             --title "${REL_NAME}@${REL_VERSION}" \
-            --notes "## ${REL_NAME}@${REL_VERSION}
-
-Install: \`npm install ${REL_NAME}@${REL_VERSION}\`" \
-  --latest 2>/dev/null || echo "Release already exists"
+            --notes "Install: \`npm install ${REL_NAME}@${REL_VERSION}\`" \
+            --latest 2>/dev/null || echo "Release already exists"
