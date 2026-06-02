@@ -1,6 +1,6 @@
 {
   "name": "@vibecontrols/vibe-plugin-gitops",
-  "version": "2026.601.1",
+  "version": "2026.602.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

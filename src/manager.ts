@@ -8,7 +8,10 @@
  */
 
 import { BoundLogger } from "@vibecontrols/plugin-sdk";
-import type { HostServices } from "@vibecontrols/plugin-sdk/contract";
+import type {
+  HostServices,
+  MetaProviderRef,
+} from "@vibecontrols/plugin-sdk/contract";
 
 import {
   DEFAULT_PROVIDER_CONFIG_KEY,
@@ -38,6 +41,18 @@ import { GitOpsError } from "./errors.js";
 
 const LOG_SOURCE = "gitops-manager";
 
+/**
+ * Map a provider PACKAGE ref to the NAME it registers under in the service
+ * registry. The provider plugins follow the `gitops-<name>` plugin-name
+ * convention (e.g. `gitops-github`) and register their provider as `<name>`
+ * (e.g. `github`), so we strip the `gitops-` prefix. Falls back to deriving
+ * the name from the package's `vibe-plugin-gitops-<name>` suffix.
+ */
+function providerNameFromRef(ref: MetaProviderRef): string {
+  if (ref.pluginName) return ref.pluginName.replace(/^gitops-/, "");
+  return ref.packageName.replace(/^.*vibe-plugin-gitops-/, "");
+}
+
 export interface ProviderSnapshot {
   name: string;
   isDefault: boolean;
@@ -50,14 +65,102 @@ export class GitopsManager {
   private registry?: GitOpsServiceRegistry;
   private host?: HostServices;
   private log: BoundLogger = new BoundLogger(undefined, LOG_SOURCE);
+  /**
+   * Known provider package refs (github/gitlab/bitbucket/azdevops), passed in
+   * from the meta plugin's `GITOPS_PROVIDERS`. Used to install a provider on
+   * demand when the operator connects it but it was skipped at boot (opt-in
+   * providers are NOT auto-provisioned to keep the agent lean).
+   */
+  private providerRefs: ReadonlyArray<MetaProviderRef> = [];
 
-  init(host: HostServices): void {
+  init(
+    host: HostServices,
+    providerRefs?: ReadonlyArray<MetaProviderRef>,
+  ): void {
     this.host = host;
     this.registry = host.serviceRegistry as unknown as
       | GitOpsServiceRegistry
       | undefined;
+    this.providerRefs = providerRefs ?? [];
     this.log = new BoundLogger(host.logger, LOG_SOURCE);
     this.log.info("GitOps manager initialised");
+  }
+
+  /**
+   * Resolve a provider, installing it on demand if it is a known opt-in
+   * provider that is not registered yet.
+   *
+   * `provisionMetaProviders` deliberately SKIPS opt-in providers at boot (none
+   * of the gitops providers declare `defaultOn`, so the agent stays lean and
+   * doesn't pull all four SCM integrations). That means the FIRST time an
+   * operator connects a provider via the GitOps tab (`saveCredentials` /
+   * `setActiveProvider`), it isn't in the service registry yet and a plain
+   * lookup throws `NOT_FOUND`. Rather than surface that to the user, we
+   * transparently run the same install → load → prereqs sequence
+   * `provisionMetaProviders` would have, then re-resolve — "behind the scenes".
+   *
+   * The install is one-time: once loaded, the provider plugin is persisted to
+   * the agent's plugin manifest and re-registers on every subsequent boot, so
+   * later calls hit the fast `getProviderByName` path. Unknown provider names
+   * (not in `providerRefs`) still throw `NOT_FOUND`.
+   */
+  private async ensureProvider(name: string): Promise<GitOpsProvider> {
+    const wanted = name.trim();
+    if (!this.registry) {
+      throw new GitOpsError("UPSTREAM", "Service registry not available");
+    }
+    const existing = this.registry.getProviderByName<GitOpsProvider>(
+      "gitops",
+      wanted,
+    );
+    if (existing) return existing;
+
+    const ref = this.providerRefs.find(
+      (r) => providerNameFromRef(r) === wanted,
+    );
+    if (!ref) {
+      throw new GitOpsError(
+        "NOT_FOUND",
+        `Gitops provider '${wanted}' is not registered`,
+      );
+    }
+    const plugins = this.host?.plugins;
+    if (!plugins?.loadProvider) {
+      throw new GitOpsError(
+        "NOT_FOUND",
+        `Gitops provider '${wanted}' is not registered (plugin host unavailable for on-demand install)`,
+      );
+    }
+
+    this.log.info(
+      `On-demand installing gitops provider '${wanted}' (${ref.packageName})`,
+    );
+    const skip = plugins.skipInstall?.() ?? false;
+    try {
+      if (!skip)
+        await plugins.install?.(ref.packageName, { refreshLatest: true });
+      await plugins.loadProvider(ref.packageName);
+      await plugins.runPrereqs?.(ref.packageName, { skipInstall: skip });
+    } catch (err) {
+      throw new GitOpsError(
+        "UPSTREAM",
+        `Failed to install gitops provider '${wanted}': ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+
+    const installed = this.registry.getProviderByName<GitOpsProvider>(
+      "gitops",
+      wanted,
+    );
+    if (!installed) {
+      throw new GitOpsError(
+        "NOT_FOUND",
+        `Gitops provider '${wanted}' did not register after on-demand install`,
+      );
+    }
+    return installed;
   }
 
   // ── Provider resolution ─────────────────────────────────────────────
@@ -172,8 +275,8 @@ export class GitopsManager {
   }
 
   async setActiveProvider(name: string): Promise<void> {
-    // Validate the provider exists.
-    this.resolveProvider(name);
+    // Install on demand + validate the provider exists.
+    await this.ensureProvider(name);
     if (this.registry?.setProviderDefault) {
       this.registry.setProviderDefault("gitops", name);
     }
@@ -191,7 +294,9 @@ export class GitopsManager {
   // ── Dispatch helpers (one per GitOpsProvider method) ────────────────
 
   async saveCredentials(provider: string, input: AuthInput): Promise<void> {
-    await this.resolveProvider(provider).saveCredentials(input);
+    // Connecting a provider is the canonical "on demand" trigger: install the
+    // opt-in provider plugin if it isn't registered yet, then save creds.
+    await (await this.ensureProvider(provider)).saveCredentials(input);
   }
 
   async validateCredentials(provider: string): Promise<AuthValidation> {

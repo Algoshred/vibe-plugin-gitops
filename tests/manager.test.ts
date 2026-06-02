@@ -179,3 +179,138 @@ describe("GitopsManager", () => {
     );
   });
 });
+
+// ── On-demand provider install ────────────────────────────────────────────
+//
+// Opt-in gitops providers are NOT auto-provisioned at boot (none declare
+// `defaultOn`), so the first time an operator connects one it isn't in the
+// registry. `ensureProvider` must transparently install + load it.
+
+const GITOPS_REFS = [
+  {
+    packageName: "@vibecontrols/vibe-plugin-gitops-github",
+    pluginName: "gitops-github",
+  },
+] as const;
+
+function makeInstallableHost(opts: {
+  initial?: Record<string, GitOpsProvider>;
+  /** Provider that becomes registered once `loadProvider(packageName)` runs. */
+  registerOnLoad?: {
+    packageName: string;
+    name: string;
+    provider: GitOpsProvider;
+  };
+}) {
+  const providers: Record<string, GitOpsProvider> = { ...(opts.initial ?? {}) };
+  const calls = { install: [] as string[], loadProvider: [] as string[] };
+  const host = {
+    serviceRegistry: {
+      getProviderByName: <T>(_type: string, name: string) =>
+        providers[name] as unknown as T | undefined,
+      listProvidersForType: (_type: string) =>
+        Object.keys(providers).map((n) => ({
+          pluginName: n,
+          isDefault: false,
+        })),
+      setProviderDefault: () => undefined,
+    },
+    plugins: {
+      skipInstall: () => false,
+      install: async (pkg: string) => {
+        calls.install.push(pkg);
+      },
+      loadProvider: async (pkg: string) => {
+        calls.loadProvider.push(pkg);
+        if (opts.registerOnLoad && pkg === opts.registerOnLoad.packageName) {
+          providers[opts.registerOnLoad.name] = opts.registerOnLoad.provider;
+        }
+      },
+      runPrereqs: async () => undefined,
+    },
+  };
+  return { host, calls, providers };
+}
+
+const PAT: AuthInput = { kind: "pat", token: "ghp_test" };
+
+describe("GitopsManager on-demand provider install", () => {
+  test("saveCredentials installs an opt-in provider that isn't registered", async () => {
+    const gh = makeStubProvider("github");
+    const { host, calls, providers } = makeInstallableHost({
+      registerOnLoad: {
+        packageName: "@vibecontrols/vibe-plugin-gitops-github",
+        name: "github",
+        provider: gh,
+      },
+    });
+    const m = new GitopsManager();
+    m.init(host as never, GITOPS_REFS as never);
+
+    expect(providers["github"]).toBeUndefined();
+    await m.saveCredentials("github", PAT);
+
+    expect(calls.install).toContain("@vibecontrols/vibe-plugin-gitops-github");
+    expect(calls.loadProvider).toContain(
+      "@vibecontrols/vibe-plugin-gitops-github",
+    );
+    expect(providers["github"]).toBe(gh);
+  });
+
+  test("saveCredentials does NOT reinstall an already-registered provider", async () => {
+    const gh = makeStubProvider("github");
+    const { host, calls } = makeInstallableHost({ initial: { github: gh } });
+    const m = new GitopsManager();
+    m.init(host as never, GITOPS_REFS as never);
+
+    await m.saveCredentials("github", PAT);
+    expect(calls.install).toEqual([]);
+    expect(calls.loadProvider).toEqual([]);
+  });
+
+  test("setActiveProvider installs the provider on demand", async () => {
+    const gl = makeStubProvider("github");
+    const refs = [
+      {
+        packageName: "@vibecontrols/vibe-plugin-gitops-gitlab",
+        pluginName: "gitops-gitlab",
+      },
+    ];
+    const { host, calls } = makeInstallableHost({
+      registerOnLoad: {
+        packageName: "@vibecontrols/vibe-plugin-gitops-gitlab",
+        name: "gitlab",
+        provider: gl,
+      },
+    });
+    const m = new GitopsManager();
+    m.init(host as never, refs as never);
+
+    await m.setActiveProvider("gitlab");
+    expect(calls.loadProvider).toContain(
+      "@vibecontrols/vibe-plugin-gitops-gitlab",
+    );
+  });
+
+  test("unknown provider (not in refs) throws NOT_FOUND without installing", async () => {
+    const { host, calls } = makeInstallableHost({});
+    const m = new GitopsManager();
+    m.init(host as never, GITOPS_REFS as never);
+
+    await expect(m.saveCredentials("bogus", PAT)).rejects.toBeInstanceOf(
+      GitOpsError,
+    );
+    expect(calls.install).toEqual([]);
+  });
+
+  test("install that never registers the provider throws NOT_FOUND", async () => {
+    // loadProvider runs but doesn't add "github" to the registry.
+    const { host } = makeInstallableHost({});
+    const m = new GitopsManager();
+    m.init(host as never, GITOPS_REFS as never);
+
+    await expect(m.saveCredentials("github", PAT)).rejects.toBeInstanceOf(
+      GitOpsError,
+    );
+  });
+});

@@ -63,7 +63,7 @@ export const createPlugin: VibePluginFactory = (
     name: PLUGIN_NAME,
     telemetryEventName: "gitops.meta.ready",
     onInit: (hostServices: HostServices) => {
-      manager.init(hostServices);
+      manager.init(hostServices, GITOPS_PROVIDERS);
       telemetry.emit("gitops.manager.ready");
     },
   });
