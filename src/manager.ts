@@ -79,8 +79,7 @@ export class GitopsManager {
   ): void {
     this.host = host;
     this.registry = host.serviceRegistry as unknown as
-      | GitOpsServiceRegistry
-      | undefined;
+      GitOpsServiceRegistry | undefined;
     this.providerRefs = providerRefs ?? [];
     this.log = new BoundLogger(host.logger, LOG_SOURCE);
     this.log.info("GitOps manager initialised");

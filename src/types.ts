@@ -75,12 +75,7 @@ export interface PipelineRun {
   branch: string;
   status: "queued" | "running" | "completed" | "waiting";
   conclusion?:
-    | "success"
-    | "failure"
-    | "cancelled"
-    | "skipped"
-    | "timed_out"
-    | "neutral";
+    "success" | "failure" | "cancelled" | "skipped" | "timed_out" | "neutral";
   event?: string;
   startedAt?: string;
   completedAt?: string;

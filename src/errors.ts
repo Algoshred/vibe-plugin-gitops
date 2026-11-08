@@ -5,12 +5,7 @@
  */
 
 export type GitOpsErrorCode =
-  | "AUTH"
-  | "NOT_FOUND"
-  | "RATE_LIMITED"
-  | "FORBIDDEN"
-  | "UPSTREAM"
-  | "INVALID";
+  "AUTH" | "NOT_FOUND" | "RATE_LIMITED" | "FORBIDDEN" | "UPSTREAM" | "INVALID";
 
 export class GitOpsError extends Error {
   readonly code: GitOpsErrorCode;
